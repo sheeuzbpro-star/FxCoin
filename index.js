@@ -4,340 +4,361 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- DATABASE SETUP ---
-// Render.com uchun MONGO_URI ni Environment Variables'ga qo'shishingiz kerak.
-// Test uchun quyidagi vaqtinchalik ulanish (agar env bo'lmasa):
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://test:test@cluster.mongodb.net/pubgm_sim?retryWrites=true&w=majority";
+// --- DATABASE CONNECTION ---
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:admin2010@cluster0.mongodb.net/pubgm_pro?retryWrites=true&w=majority";
+mongoose.connect(MONGO_URI).then(() => console.log("✅ MongoDB Connected")).catch(err => console.log(err));
 
-mongoose.connect(MONGO_URI)
-    .then(() => console.log("🔥 MongoDB connected!"))
-    .catch(err => console.error("❌ MongoDB Error:", err));
-
+// --- SCHEMAS ---
 const UserSchema = new mongoose.Schema({
     userId: { type: String, unique: true },
-    balance: { type: Number, default: 500 },
-    inventory: Array
+    balance: { type: Number, default: 1000 },
+    inventory: Array,
+    history: {
+        coin: { type: Array, default: [] },
+        uc: { type: Array, default: [] }
+    }
 });
 const User = mongoose.model('User', UserSchema);
 
 app.use(express.json());
-app.use(express.static('public'));
 
-// --- GAME DATA ---
+// --- GAME DATA (25+ CASES & PROBABILITIES) ---
+// Rarity Weights: Ultimate (0.4%), Mythic (15%), Weapon (20%), Legendary (25%), Silver (40% - scaled to fit)
 const ITEMS = {
-    pharaoh: [
-        { name: "Pharaoh X-Suit (Level 7)", price: 5000, rarity: "ultimate", img: "https://i.ibb.co/L6vV7xV/pharaoh.png" },
-        { name: "Golden Sarcophagus", price: 1200, rarity: "mythic", img: "https://i.ibb.co/pW6z6Gq/box.png" },
-        { name: "Silver", price: 10, rarity: "common", img: "https://i.ibb.co/mS5Tz5k/silver.png" }
-    ],
-    poseidon: [
-        { name: "Poseidon X-Suit", price: 4500, rarity: "ultimate", img: "https://i.ibb.co/hK8XwzN/poseidon.png" },
-        { name: "Trident Spear", price: 1000, rarity: "mythic", img: "https://i.ibb.co/pW6z6Gq/box.png" },
-        { name: "Silver", price: 10, rarity: "common", img: "https://i.ibb.co/mS5Tz5k/silver.png" }
-    ],
-    mummy: [
-        { name: "White Mummy Set", price: 3000, rarity: "mythic", img: "https://i.ibb.co/kH7Q6z3/mummy.png" },
-        { name: "Yellow Mummy Set", price: 2500, rarity: "mythic", img: "https://i.ibb.co/kH7Q6z3/mummy.png" },
-        { name: "Silver", price: 10, rarity: "common", img: "https://i.ibb.co/mS5Tz5k/silver.png" }
-    ]
+    "Pharaoh X-Suit": { img: "https://i.ibb.co/L6vV7xV/pharaoh.png", items: [
+        { name: "Pharaoh X-Suit (Lvl 7)", type: "xsuit", rarity: "ultimate", price: 2000 },
+        { name: "M24 Seven Seas", type: "gun", rarity: "mythic", price: 700 },
+        { name: "Pharaoh Set", type: "outfit", rarity: "mythic", price: 500 },
+        { name: "Golden Pan", type: "item", rarity: "legendary", price: 100 },
+        { name: "Silver", type: "currency", rarity: "common", price: 1 }
+    ]},
+    "Poseidon X-Suit": { img: "https://i.ibb.co/hK8XwzN/poseidon.png", items: [
+        { name: "Poseidon X-Suit", type: "xsuit", rarity: "ultimate", price: 2000 },
+        { name: "M16A4 Blood & Bones", type: "gun", rarity: "mythic", price: 700 },
+        { name: "Silver", type: "currency", rarity: "common", price: 1 }
+    ]},
+    // ... Boshqa 23 ta keys dinamik ravishda pastda generatsiya qilinadi
 };
 
-// --- API ROUTES ---
+// 25 ta keysni to'ldirish
+const xsuitNames = ["Silvanus", "Avalanche", "Fiore", "Marmoris", "Galadria", "Stygian", "Ignis", "Arcane", "Irradiance"];
+xsuitNames.forEach(name => {
+    ITEMS[`${name} X-Suit`] = {
+        img: "https://i.ibb.co/pW6z6Gq/box.png",
+        items: [
+            { name: `${name} Suit`, type: "xsuit", rarity: "ultimate", price: 2000 },
+            { name: "M416 Glacier", type: "gun", rarity: "mythic", price: 700 },
+            { name: "Silver", type: "currency", rarity: "common", price: 1 }
+        ]
+    };
+});
+for(let i=1; i<=15; i++) {
+    ITEMS[`Classic Case V${i}`] = {
+        img: "https://i.ibb.co/pW6z6Gq/box.png",
+        items: [
+            { name: "M416 Fool", type: "gun", rarity: "mythic", price: 700 },
+            { name: "AWM Godzilla", type: "gun", rarity: "mythic", price: 700 },
+            { name: "Random Legendary", type: "item", rarity: "legendary", price: 150 },
+            { name: "Silver", type: "currency", rarity: "common", price: 1 }
+        ]
+    };
+}
 
-// Foydalanuvchini olish yoki yaratish
+// --- API LOGIC ---
+
 app.post('/api/user', async (req, res) => {
-    const { userId } = req.body;
-    let user = await User.findOne({ userId });
-    if (!user) {
-        user = new User({ userId, balance: 1000, inventory: [] });
-        await user.save();
-    }
+    let user = await User.findOne({ userId: req.body.userId });
+    if (!user) user = await User.create({ userId: req.body.userId });
     res.json(user);
 });
 
-// Keys ochish mantiqi
 app.post('/api/open', async (req, res) => {
-    const { userId, caseType, count } = req.body;
-    const cost = count === 1 ? 70 : 700;
+    const { userId, caseName, count } = req.body;
     const user = await User.findOne({ userId });
-
-    if (user.balance < cost) return res.status(400).json({ error: "Mablag' yetarli emas!" });
+    const cost = count * 70;
+    if (user.balance < cost) return res.json({ error: "Mablag' yetarli emas!" });
 
     let rewards = [];
-    const pool = ITEMS[caseType];
+    const pool = ITEMS[caseName].items;
 
     for (let i = 0; i < count; i++) {
         let rand = Math.random() * 100;
-        if (rand < 2) rewards.push(pool[0]); // 2% Ultimate
-        else if (rand < 15) rewards.push(pool[1]); // 13% Mythic
-        else rewards.push(pool[2]); // Silver
+        let item;
+        if (rand < 0.4) item = pool.find(i => i.rarity === 'ultimate') || pool[0];
+        else if (rand < 15.4) item = pool.find(i => i.rarity === 'mythic') || pool[0];
+        else if (rand < 35.4) item = pool.find(i => i.type === 'gun') || pool[0];
+        else if (rand < 60.4) item = pool.find(i => i.rarity === 'legendary') || pool[0];
+        else item = pool.find(i => i.rarity === 'common');
+        rewards.push(item);
     }
 
     user.balance -= cost;
     user.inventory.push(...rewards);
     await user.save();
-    res.json({ rewards, newBalance: user.balance });
+    res.json({ rewards, balance: user.balance });
 });
 
-// Sotish mantiqi
-app.post('/api/sell', async (req, res) => {
-    const { userId, itemIndex } = req.body;
+app.post('/api/convert-uc', async (req, res) => {
+    const { userId, amount, promo } = req.body;
+    let cost = amount === 60 ? 3000 : amount === 120 ? 6000 : amount === 360 ? 18000 : 30000;
+    if (promo === "rudi") cost -= 500;
+
     const user = await User.findOne({ userId });
-    const item = user.inventory[itemIndex];
-    if (item) {
-        user.balance += item.price;
-        user.inventory.splice(itemIndex, 1);
-        await user.save();
-    }
-    res.json({ newBalance: user.balance });
+    if (user.balance < cost) return res.json({ error: "Fx balans yetarli emas!" });
+
+    user.balance -= cost;
+    const ucCode = "PUBG-UC-" + Math.random().toString(36).toUpperCase().substring(2, 12);
+    user.history.uc.unshift({ code: ucCode, amount, date: new Date().toLocaleString() });
+    await user.save();
+    res.json({ success: true, code: ucCode, balance: user.balance });
 });
 
-// Secret Code (Admin2010)
-app.post('/api/secret', async (req, res) => {
-    const { userId, code } = req.body;
-    if (code === "admin2010") {
-        const user = await User.findOneAndUpdate({ userId }, { $inc: { balance: 10000 } }, { new: true });
-        return res.json({ success: true, balance: user.balance });
-    }
-    res.status(400).json({ error: "Kod noto'g'ri!" });
+app.post('/api/sell', async (req, res) => {
+    const { userId, index } = req.body;
+    const user = await User.findOne({ userId });
+    const item = user.inventory[index];
+    user.balance += item.price;
+    user.inventory.splice(index, 1);
+    await user.save();
+    res.json({ balance: user.balance });
 });
 
-// Admin Panel Logic
-app.post('/api/admin/add', async (req, res) => {
-    const { targetId, amount } = req.body;
-    const user = await User.findOneAndUpdate({ userId: targetId }, { $inc: { balance: parseInt(amount) } }, { new: true });
-    res.json({ success: !!user });
-});
-
-// --- FRONTEND LAYOUT (HTML/CSS/JS) ---
+// --- FRONTEND ---
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
-<html lang="uz">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PUBGM Simulator | FxCoin</title>
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <title>PUBGM Terminal Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --gold: #d4af37; --dark: #0b0b0b; --gray: #1a1a1a; }
-        body { background: var(--dark); color: white; font-family: 'Rajdhani', sans-serif; margin: 0; overflow-x: hidden; }
+        :root { --gold: #d4af37; --dark: #0a0a0a; --green: #00ff41; --red: #ff3e3e; }
+        body { background: var(--dark); color: white; font-family: 'Fira Code', monospace; margin: 0; display: flex; height: 100vh; overflow: hidden; }
         
-        /* Header */
-        header { background: #000; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--gold); position: sticky; top: 0; z-index: 100; }
-        .balance-box { display: flex; align-items: center; gap: 10px; background: #222; padding: 5px 15px; border-radius: 20px; border: 1px solid var(--gold); }
-        .coin-icon { color: var(--gold); font-weight: bold; }
+        /* Sidebar Terminal Style */
+        .sidebar { width: 320px; background: #000; border-right: 1px solid #333; display: flex; flex-direction: column; padding: 15px; border-right: 2px solid var(--gold); }
+        .terminal-header { color: var(--green); font-size: 12px; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+        .menu-section { margin-bottom: 25px; }
+        .menu-title { color: var(--gold); font-size: 14px; text-transform: uppercase; margin-bottom: 10px; display: block; }
+        .btn-side { width: 100%; background: #111; border: 1px solid #333; color: #ccc; padding: 10px; text-align: left; cursor: pointer; margin-bottom: 5px; font-size: 12px; }
+        .btn-side:hover { border-color: var(--gold); color: white; }
 
-        /* Main Layout */
-        .container { display: flex; min-height: 100vh; }
-        .sidebar { width: 250px; background: var(--gray); border-right: 1px solid #333; padding: 20px; }
-        .main-content { flex: 1; padding: 40px; }
-
-        .nav-item { padding: 15px; background: #252525; margin-bottom: 10px; border-radius: 8px; cursor: pointer; transition: 0.3s; text-align: center; border-left: 4px solid transparent; }
-        .nav-item:hover { background: #333; border-left-color: var(--gold); }
-
-        /* Case Cards */
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 25px; }
-        .case-card { background: linear-gradient(145deg, #1a1a1a, #000); border: 1px solid #333; border-radius: 15px; padding: 20px; text-align: center; transition: 0.4s; position: relative; overflow: hidden; cursor: pointer; }
-        .case-card:hover { transform: translateY(-10px); border-color: var(--gold); box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); }
-        .case-card img { width: 100%; height: 200px; object-fit: contain; }
-        .case-card h3 { margin: 15px 0; color: var(--gold); text-transform: uppercase; }
+        /* Main Content */
+        .main { flex: 1; overflow-y: auto; padding: 30px; background: radial-gradient(circle at top, #1a1a1a 0%, #0a0a0a 100%); }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .case-card { background: #111; border: 1px solid #222; padding: 15px; text-align: center; border-radius: 12px; transition: 0.3s; cursor: pointer; }
+        .case-card:hover { border-color: var(--gold); transform: translateY(-5px); box-shadow: 0 5px 15px rgba(212,175,55,0.2); }
+        .case-card img { width: 100%; height: 150px; object-fit: contain; }
+        
+        /* History Tizimi */
+        .history-tabs { display: flex; gap: 5px; margin-top: 10px; }
+        .tab { flex: 1; font-size: 10px; padding: 5px; background: #222; border: none; color: white; cursor: pointer; }
+        .tab.active { background: var(--gold); color: black; }
+        .history-list { font-size: 11px; height: 150px; overflow-y: auto; background: #050505; padding: 5px; border: 1px solid #222; margin-top: 5px; }
 
         /* Modal */
-        #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; }
-        .modal-content { background: #111; width: 80%; max-width: 900px; padding: 30px; border-radius: 20px; border: 2px solid var(--gold); text-align: center; }
-        .reward-anim { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 20px 0; }
-        .reward-item { width: 120px; padding: 10px; background: #222; border-radius: 10px; border-bottom: 3px solid gray; }
-        .reward-item.ultimate { border-color: #ff3e3e; box-shadow: 0 0 15px #ff3e3e; }
-        .reward-item.mythic { border-color: #ff00ff; }
-        .reward-item img { width: 80px; }
+        #modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:999; align-items:center; justify-content:center; }
+        .modal-box { background:#111; border:2px solid var(--gold); width:80%; max-width:800px; padding:30px; border-radius:20px; text-align:center; }
+        .reward-grid { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:20px 0; }
+        .reward-box { width:130px; padding:10px; background:#1a1a1a; border-radius:10px; border-bottom: 4px solid #555; }
+        .ultimate { border-color: var(--red) !important; box-shadow: 0 0 15px var(--red); }
+        .mythic { border-color: #ff00ff !important; }
+        
+        .btn-action { background:var(--gold); color:black; border:none; padding:12px 25px; font-weight:bold; cursor:pointer; border-radius:5px; margin:5px; }
+        .btn-action:disabled { opacity: 0.5; }
 
-        .btn { background: var(--gold); color: black; border: none; padding: 12px 25px; font-weight: bold; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 5px; transition: 0.3s; }
-        .btn:hover { background: #b8962d; transform: scale(1.05); }
-        .btn-secondary { background: #333; color: white; }
-
-        /* Admin Page Style */
-        .admin-page { padding: 50px; max-width: 500px; margin: auto; }
-        input { width: 100%; padding: 12px; margin: 10px 0; background: #222; border: 1px solid var(--gold); color: white; border-radius: 5px; }
+        .uc-select { width: 100%; background: #222; border: 1px solid var(--gold); color: white; padding: 10px; margin: 10px 0; }
     </style>
 </head>
 <body>
 
-<header>
-    <div id="user-id-display">ID: Loading...</div>
-    <div style="display: flex; gap: 20px; align-items: center;">
-        <div class="balance-box">
-            <span class="coin-icon">Fx</span>
-            <span id="balance">0</span>
-        </div>
-        <button class="btn-secondary" onclick="openSettings()">⚙️</button>
-    </div>
-</header>
-
-<div class="container" id="app-body">
     <div class="sidebar">
-        <h3 style="color: var(--gold)">MEnu</h3>
-        <div class="nav-item" onclick="alert('Tez kunda...')">🛒 UC Xarid Qilish</div>
-        <div class="nav-item" onclick="showInventory()">🎒 Inventar</div>
+        <div class="terminal-header">
+            > SYSTEM_READY: v4.0.1<br>
+            > STATUS: ENCRYPTED<br>
+            > WELCOME: <span id="sid-display">...</span>
+        </div>
+
+        <div class="menu-section">
+            <span class="menu-title">🛒 UC Xarid (Codes)</span>
+            <select id="uc-amount" class="uc-select">
+                <option value="60">60 UC - 3000 Fx</option>
+                <option value="120">120 UC - 6000 Fx</option>
+                <option value="360">360 UC - 18000 Fx</option>
+                <option value="600">600 UC - 30000 Fx</option>
+            </select>
+            <input type="text" id="promo-code" placeholder="Promokod" style="width:93%; background:#111; border:1px solid #333; color:white; padding:10px; margin-bottom:5px;">
+            <button class="btn-side" onclick="buyUC()">CONVERT TO UC</button>
+        </div>
+
+        <div class="menu-section">
+            <span class="menu-title">💰 FxCoin Xizmati</span>
+            <button class="btn-side" onclick="depositFx()">+ FxCoin Chushirish</button>
+            <button class="btn-side" onclick="showInventory()">🎒 Inventar & Sotish</button>
+        </div>
+
+        <div class="menu-section" style="flex:1">
+            <span class="menu-title">📜 Operatsiyalar Tarixi</span>
+            <div class="history-tabs">
+                <button class="tab active" onclick="switchTab('coin')">COINS</button>
+                <button class="tab" onclick="switchTab('uc')">UC CODES</button>
+            </div>
+            <div id="history-box" class="history-list"></div>
+        </div>
     </div>
 
-    <div class="main-content">
-        <h2 style="margin-bottom: 30px;">Premium Keyslar</h2>
-        <div class="grid">
-            <div class="case-card" onclick="openCaseModal('pharaoh')">
-                <img src="https://i.ibb.co/L6vV7xV/pharaoh.png">
-                <h3>Pharaoh X-Suit</h3>
-                <p>70 FxCoin</p>
+    <div class="main">
+        <header>
+            <div style="font-size:20px; font-weight:bold; color:var(--gold)">FX SIMULATOR</div>
+            <div style="display:flex; gap:20px;">
+                <div style="background:#222; padding:5px 15px; border-radius:20px; border:1px solid var(--gold)">
+                    <span style="color:var(--gold)">Fx</span> <span id="balance">0</span>
+                </div>
             </div>
-            <div class="case-card" onclick="openCaseModal('poseidon')">
-                <img src="https://i.ibb.co/hK8XwzN/poseidon.png">
-                <h3>Poseidon X-Suit</h3>
-                <p>70 FxCoin</p>
-            </div>
-            <div class="case-card" onclick="openCaseModal('mummy')">
-                <img src="https://i.ibb.co/kH7Q6z3/mummy.png">
-                <h3>Mummy Case</h3>
-                <p>70 FxCoin</p>
+        </header>
+
+        <div id="content-area">
+            <h3 style="color:var(--gold)">Barcha Keyslar (25+)</h3>
+            <div class="grid" id="case-grid"></div>
+        </div>
+    </div>
+
+    <div id="modal">
+        <div class="modal-box">
+            <h2 id="modal-title" style="color:var(--gold)"></h2>
+            <div id="reward-display" class="reward-grid"></div>
+            <div id="modal-btns">
+                <button class="btn-action" onclick="spin(1)">1x OCHISH (70 Fx)</button>
+                <button class="btn-action" onclick="spin(10)">10x OCHISH (700 Fx)</button>
+                <button class="btn-action" style="background:#444; color:white" onclick="closeModal()">YOPISH</button>
             </div>
         </div>
     </div>
-</div>
 
-<div id="modal">
-    <div class="modal-content">
-        <h2 id="modal-title">Case Opening</h2>
-        <div id="reward-display" class="reward-anim"></div>
-        <div id="modal-actions">
-            <button class="btn" onclick="spin(1)">1x Ochish (70 Fx)</button>
-            <button class="btn" onclick="spin(10)">10x Ochish (700 Fx)</button>
-            <button class="btn btn-secondary" onclick="closeModal()">Yopish</button>
-        </div>
-    </div>
-</div>
+    <script>
+        let userId = localStorage.getItem('pubg_uid') || 'U' + Math.floor(Math.random()*999999);
+        localStorage.setItem('pubg_uid', userId);
+        document.getElementById('sid-display').innerText = userId;
+        
+        let selectedCase = "";
+        let currentTab = 'coin';
 
-<script>
-    let currentUserId = localStorage.getItem('pubgm_id') || 'ID' + Math.floor(Math.random()*999999);
-    localStorage.setItem('pubgm_id', currentUserId);
-    let selectedCase = '';
+        async function loadUser() {
+            const res = await fetch('/api/user', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId }) });
+            const user = await res.json();
+            document.getElementById('balance').innerText = user.balance;
+            renderHistory(user);
+        }
 
-    async function initUser() {
-        const res = await fetch('/api/user', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ userId: currentUserId })
-        });
-        const data = await res.json();
-        document.getElementById('user-id-display').innerText = 'ID: ' + data.userId;
-        document.getElementById('balance').innerText = data.balance;
-    }
+        function renderCases() {
+            const grid = document.getElementById('case-grid');
+            const cases = ${JSON.stringify(Object.keys(ITEMS))};
+            grid.innerHTML = cases.map(c => \`
+                <div class="case-card" onclick="openCaseModal('\${c}')">
+                    <img src="https://i.ibb.co/pW6z6Gq/box.png">
+                    <div style="margin-top:10px; font-size:12px;">\${c}</div>
+                    <div style="color:var(--gold); font-size:11px">70 Fx</div>
+                </div>
+            \`).join('');
+        }
 
-    function openCaseModal(type) {
-        selectedCase = type;
-        document.getElementById('modal-title').innerText = type.toUpperCase() + " CASE";
-        document.getElementById('reward-display').innerHTML = '<p>Buyumlar: X-Suit, Skinlar, Silver...</p>';
-        document.getElementById('modal').style.display = 'flex';
-    }
+        function openCaseModal(name) {
+            selectedCase = name;
+            document.getElementById('modal-title').innerText = name;
+            document.getElementById('reward-display').innerHTML = '<p style="color:#555">Keys ichida: Ultimate X-Suitlar va Killchat qurollar...</p>';
+            document.getElementById('modal').style.display = 'flex';
+        }
 
-    async function spin(count) {
-        const res = await fetch('/api/open', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ userId: currentUserId, caseType: selectedCase, count })
-        });
-        const data = await res.json();
-        if(data.error) return alert(data.error);
-
-        document.getElementById('balance').innerText = data.newBalance;
-        const display = document.getElementById('reward-display');
-        display.innerHTML = '';
-
-        data.rewards.forEach(item => {
-            const div = document.createElement('div');
-            div.className = 'reward-item ' + item.rarity;
-            div.innerHTML = \`<img src="\${item.img}"><br><small>\${item.name}</small>\`;
-            display.appendChild(div);
-        });
-    }
-
-    async function openSettings() {
-        const code = prompt("Secret Kodni kiriting:");
-        if(code) {
-            const res = await fetch('/api/secret', {
+        async function spin(count) {
+            const res = await fetch('/api/open', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ userId: currentUserId, code })
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ userId, caseName: selectedCase, count })
             });
             const data = await res.json();
-            if(data.success) {
-                alert("10,000 FxCoin qo'shildi!");
-                document.getElementById('balance').innerText = data.balance;
-            } else {
-                alert("Xato kod!");
+            if(data.error) return alert(data.error);
+
+            document.getElementById('balance').innerText = data.balance;
+            const disp = document.getElementById('reward-display');
+            disp.innerHTML = '';
+            data.rewards.forEach(itm => {
+                disp.innerHTML += \`
+                    <div class="reward-box \${itm.rarity}">
+                        <img src="\${itm.img || 'https://i.ibb.co/mS5Tz5k/silver.png'}" style="width:60px">
+                        <div style="font-size:10px; margin-top:5px">\${itm.name}</div>
+                    </div>
+                \`;
+            });
+            loadUser();
+        }
+
+        async function showInventory() {
+            const res = await fetch('/api/user', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId }) });
+            const user = await res.json();
+            let html = '<h3 style="color:var(--gold)">🎒 Inventar</h3><div class="grid">';
+            user.inventory.forEach((itm, i) => {
+                html += \`
+                    <div class="case-card">
+                        <div style="font-size:10px; color:var(--gold)">\${itm.rarity.toUpperCase()}</div>
+                        <div>\${itm.name}</div>
+                        <button class="btn-action" style="padding:5px; font-size:10px" onclick="sell(\${i})">Sotish: \${itm.price} Fx</button>
+                    </div>
+                \`;
+            });
+            html += '</div><button class="btn-action" onclick="location.reload()">ORQAGA</button>';
+            document.getElementById('content-area').innerHTML = html;
+        }
+
+        async function sell(index) {
+            const res = await fetch('/api/sell', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ userId, index }) });
+            const data = await res.json();
+            document.getElementById('balance').innerText = data.balance;
+            showInventory();
+        }
+
+        async function buyUC() {
+            const amount = parseInt(document.getElementById('uc-amount').value);
+            const promo = document.getElementById('promo-code').value;
+            const res = await fetch('/api/convert-uc', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ userId, amount, promo })
+            });
+            const data = await res.json();
+            if(data.error) alert(data.error);
+            else {
+                alert("UC Kod olindi: " + data.code);
+                loadUser();
             }
         }
-    }
 
-    async function showInventory() {
-        const res = await fetch('/api/user', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ userId: currentUserId })
-        });
-        const user = await res.json();
-        let invHtml = "<h2>🎒 Inventar</h2><div class='grid'>";
-        user.inventory.forEach((item, index) => {
-            invHtml += \`
-                <div class="case-card">
-                    <img src="\${item.img}">
-                    <h4>\${item.name}</h4>
-                    <button class="btn" onclick="sellItem(\${index})">Sotish (\${item.price} Fx)</button>
-                </div>\`;
-        });
-        invHtml += "</div><button class='btn btn-secondary' onclick='location.reload()'>Orqaga</button>";
-        document.getElementById('app-body').innerHTML = invHtml;
-    }
+        function renderHistory(user) {
+            const box = document.getElementById('history-box');
+            if(currentTab === 'uc') {
+                box.innerHTML = user.history.uc.map(h => \`<div style="color:var(--green); margin-bottom:5px;">[\${h.date}] \${h.amount}UC: \${h.code}</div>\`).join('');
+            } else {
+                box.innerHTML = '<div style="color:#555">Coin tushurish tarixi bo\\'sh...</div>';
+            }
+        }
 
-    async function sellItem(index) {
-        const res = await fetch('/api/sell', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ userId: currentUserId, itemIndex: index })
-        });
-        const data = await res.json();
-        document.getElementById('balance').innerText = data.newBalance;
-        showInventory();
-    }
+        function switchTab(t) {
+            currentTab = t;
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+            loadUser();
+        }
 
-    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+        function closeModal() { document.getElementById('modal').style.display = 'none'; }
+        function depositFx() { alert("Tez kunda: Admin panel orqali balans toldiring!"); }
 
-    initUser();
-</script>
+        loadUser();
+        renderCases();
+    </script>
 </body>
 </html>
     `);
 });
 
-// Admin Sahifasi
-app.get('/admin', (req, res) => {
-    res.send(`
-        <body style="background: #000; color: gold; font-family: sans-serif; text-align:center;">
-            <h1>Admin Panel</h1>
-            <input id="tid" placeholder="Foydalanuvchi ID">
-            <input id="amt" placeholder="FxCoin Miqdori">
-            <button onclick="send()">Yuborish</button>
-            <script>
-                async function send() {
-                    const res = await fetch('/api/admin/add', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ targetId: document.getElementById('tid').value, amount: document.getElementById('amt').value })
-                    });
-                    const data = await res.json();
-                    alert(data.success ? "Yuborildi!" : "Xatolik!");
-                }
-            </script>
-        </body>
-    `);
-});
-
-app.listen(PORT, () => console.log(\`🚀 Server running on port \${PORT}\`));
+app.listen(PORT, () => console.log(`🚀 Terminal Simulator started on port ${PORT}`));
