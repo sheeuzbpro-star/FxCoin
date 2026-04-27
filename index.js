@@ -26,14 +26,12 @@ const Order = mongoose.model('Order', new mongoose.Schema({
 }));
 
 // 3. API YO'LLARI
-// FxCoin yuborish
 app.post('/api/admin/add-coin', async (req, res) => {
     const { userId, amount } = req.body;
     const user = await User.findOneAndUpdate({ userId }, { $inc: { fxCoin: parseInt(amount) } }, { upsert: true, new: true });
     res.json({ success: true, balance: user.fxCoin });
 });
 
-// Kodni tekshirish (UC xaridini ko'rish)
 app.post('/api/admin/check-code', async (req, res) => {
     const { code } = req.body;
     const order = await Order.findOne({ code });
@@ -44,81 +42,95 @@ app.post('/api/admin/check-code', async (req, res) => {
     }
 });
 
-// 4. ADMIN PANEL (FRONTEND)
+// 4. ASOSIY SAHIFA (ODDIY FOYDALANUVCHILAR UCHUN)
 app.get('/', (req, res) => {
+    res.send("<h1>FX-LOOT API is running...</h1><p>Admin panelga kirish taqiqlangan.</p>");
+});
+
+// 5. ADMIN PANEL (MAXFIY LOGIN BILAN)
+app.get('/admin', (req, res) => {
     res.send(`
 <!DOCTYPE html>
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <title>FX-LOOT Admin Control</title>
+    <title>FX-ADMIN LOGIN</title>
     <style>
-        body { background: #0f1015; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .container { width: 90%; max-width: 800px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .card { background: #1a1c24; padding: 25px; border-radius: 15px; border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        h2 { color: #f57c00; font-size: 18px; text-transform: uppercase; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; background: #0d0e14; border: 1px solid #444; color: white; border-radius: 8px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; }
-        .btn-coin { background: #f57c00; color: white; }
-        .btn-uc { background: #2196f3; color: white; }
-        button:hover { opacity: 0.8; transform: translateY(-2px); }
-        .result { margin-top: 15px; padding: 10px; background: #000; border-radius: 5px; font-size: 13px; color: #4caf50; min-height: 40px; }
-        @media (max-width: 600px) { .container { grid-template-columns: 1fr; } }
+        body { background: #0a0b10; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .login-box { background: #15171f; padding: 30px; border-radius: 15px; border: 1px solid #333; text-align: center; width: 300px; }
+        .admin-content { display: none; width: 800px; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; }
+        .card { background: #1a1c24; padding: 20px; border-radius: 12px; border: 1px solid #444; }
+        h2 { color: #f57c00; font-size: 16px; margin-top: 0; }
+        input { width: 100%; padding: 10px; margin: 10px 0; background: #0d0e14; border: 1px solid #444; color: white; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; background: #f57c00; color: white; }
+        .result { margin-top: 10px; font-size: 12px; color: #4caf50; min-height: 20px; }
     </style>
 </head>
 <body>
-    <h1 style="color: #f57c00;">🛡️ FX-LOOT ADMIN PANEL</h1>
-    <div class="container">
-        
+
+    <div id="loginArea" class="login-box">
+        <h2 style="color: #f57c00;">ADMIN KIRISH</h2>
+        <input type="text" id="admUser" placeholder="Login">
+        <input type="password" id="admPass" placeholder="Parol">
+        <button onclick="checkAdmin()">KIRISH</button>
+        <p id="error" style="color: red; font-size: 12px; display: none;">Xato!</p>
+    </div>
+
+    <div id="panelArea" class="admin-content">
         <div class="card">
             <h2>💰 FxCoin Yuborish</h2>
-            <input type="text" id="coinUser" placeholder="Foydalanuvchi ID">
-            <input type="number" id="coinAmt" placeholder="Miqdor (Fx)">
-            <button class="btn-coin" onclick="sendCoin()">TANGANI YUBORISH</button>
-            <div id="coinRes" class="result">Tayyor.</div>
+            <input type="text" id="coinUser" placeholder="User ID">
+            <input type="number" id="coinAmt" placeholder="Miqdor">
+            <button onclick="sendCoin()">YUBORISH</button>
+            <div id="coinRes" class="result"></div>
         </div>
-
         <div class="card">
-            <h2>🔑 UC Kodni Tekshirish</h2>
-            <input type="text" id="ucCode" placeholder="Kodni kiriting (Masalan: FX-ABCD)">
-            <button class="btn-uc" onclick="checkCode()">KODNI KO'RISH</button>
-            <div id="ucRes" class="result">Ma'lumot yo'q.</div>
+            <h2>🔑 UC Kod Tekshirish</h2>
+            <input type="text" id="ucCode" placeholder="Kod">
+            <button style="background: #2196f3;" onclick="checkCode()">TEKSHIRISH</button>
+            <div id="ucRes" class="result"></div>
         </div>
-
     </div>
 
     <script>
+        function checkAdmin() {
+            const u = document.getElementById('admUser').value;
+            const p = document.getElementById('admPass').value;
+            
+            // ADMIN PAROLNI SHU YERDA O'ZGARTIRISHINGIZ MUMKIN
+            if(u === 'admin' && p === '2010') {
+                document.getElementById('loginArea').style.display = 'none';
+                document.getElementById('panelArea').style.display = 'grid';
+            } else {
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
         async function sendCoin() {
             const userId = document.getElementById('coinUser').value;
             const amount = document.getElementById('coinAmt').value;
-            if(!userId || !amount) return alert("To'ldiring!");
-
             const res = await fetch('/api/admin/add-coin', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ userId, amount })
             });
             const data = await res.json();
-            document.getElementById('coinRes').innerHTML = "✅ " + userId + " yangi balansi: " + data.balance + " Fx";
+            document.getElementById('coinRes').innerText = "✅ Balans: " + data.balance;
         }
 
         async function checkCode() {
             const code = document.getElementById('ucCode').value;
-            if(!code) return alert("Kod yozing!");
-
             const res = await fetch('/api/admin/check-code', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ code })
             });
             const data = await res.json();
-            const resDiv = document.getElementById('ucRes');
+            const div = document.getElementById('ucRes');
             if(data.success) {
-                resDiv.style.color = "#4caf50";
-                resDiv.innerHTML = "👤 User: " + data.order.userId + "<br>💎 UC: " + data.order.ucAmount + " UC<br>🕒 Holat: " + data.order.status;
+                div.innerHTML = "👤 ID: " + data.order.userId + " | 💎 UC: " + data.order.ucAmount;
             } else {
-                resDiv.style.color = "#ff5252";
-                resDiv.innerText = data.message;
+                div.innerText = "❌ Kod topilmadi";
             }
         }
     </script>
@@ -128,4 +140,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server yondi!"));
+app.listen(PORT, () => console.log("Server ready on port " + PORT));
