@@ -6,20 +6,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- 1. MONGODB ULANISHI (XAVFSIZ REJIM) ---
+// --- 1. MONGODB ---
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://demo:demo@cluster.mongodb.net/fxloot?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI)
-    .then(() => console.log("✅ MongoDB muvaffaqiyatli ulandi"))
-    .catch(err => console.log("⚠️ MongoDB ulanmadi, lekin server ishlashda davom etadi."));
+    .then(() => console.log("✅ Baza ulandi"))
+    .catch(err => console.log("⚠️ Baza ulanmadi, lekin server ishlaydi."));
 
-const UserSchema = new mongoose.Schema({
+const User = mongoose.model('User', new mongoose.Schema({
     userId: { type: String, unique: true },
-    fxCoin: { type: Number, default: 100000 }
-});
-const User = mongoose.model('User', UserSchema);
+    fxCoin: { type: Number, default: 1000000 } // 1,000,000 FxCoin boshlang'ich balans
+}));
 
-// --- 2. ADMIN PANEL (DIZAYN TUZATILDI) ---
+// --- 2. ADMIN PANEL (Rasmdagi dizayn) ---
 app.get('/admin', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -28,30 +27,33 @@ app.get('/admin', (req, res) => {
     <title>ADMIN PANEL</title>
     <style>
         body { background: #050505; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .box { background: #111; border: 2px solid #f57c00; padding: 40px; border-radius: 15px; width: 350px; text-align: center; }
-        h2 { color: #00ff00; }
-        input { width: 100%; padding: 12px; margin: 10px 0; background: #222; border: 1px solid #444; color: white; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; background: #f57c00; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; margin-top: 10px; }
+        .admin-box { background: #121212; border: 2px solid #f57c00; border-radius: 15px; padding: 40px; width: 380px; text-align: center; box-shadow: 0 0 20px rgba(245, 124, 0, 0.3); }
+        h2 { color: #00ff00; margin-bottom: 30px; letter-spacing: 1px; }
+        input { width: 100%; padding: 15px; margin-bottom: 20px; background: #1e1e1e; border: 1px solid #333; color: white; border-radius: 8px; box-sizing: border-box; outline: none; }
+        input:focus { border-color: #f57c00; }
+        button { width: 100%; padding: 18px; background: #f57c00; color: black; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        button:hover { background: #ff9800; }
     </style>
 </head>
 <body>
-    <div class="box">
+    <div class="admin-box">
         <h2>ADMIN PANEL</h2>
-        <input type="text" id="u" placeholder="User ID">
-        <input type="number" id="a" value="100000">
+        <input type="text" id="uid" placeholder="Foydalanuvchi ID">
+        <input type="number" id="amt" value="1000000">
         <button onclick="send()">COIN YUBORISH</button>
     </div>
     <script>
         async function send() {
-            const uid = document.getElementById('u').value;
-            const amt = document.getElementById('a').value;
-            const r = await fetch('/api/admin/add', {
+            const id = document.getElementById('uid').value;
+            const amt = document.getElementById('amt').value;
+            if(!id) return alert("ID kiriting!");
+            const res = await fetch('/api/admin/add', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ userId: uid, amount: amt })
+                body: JSON.stringify({ userId: id, amount: amt })
             });
-            const d = await r.json();
-            if(d.success) alert("Bajarildi! Yangi balans: " + d.balance);
+            const data = await res.json();
+            if(data.success) alert("Muvaffaqiyatli yuborildi! Jami: " + data.balance);
         }
     </script>
 </body>
@@ -62,82 +64,78 @@ app.get('/admin', (req, res) => {
 app.get('/api/user/:id', async (req, res) => {
     try {
         let user = await User.findOne({ userId: req.params.id });
-        if (!user) user = await User.create({ userId: req.params.id, fxCoin: 100000 });
+        if (!user) user = await User.create({ userId: req.params.id, fxCoin: 1000000 });
         res.json(user);
-    } catch (e) {
-        res.json({ userId: req.params.id, fxCoin: 100000 });
-    }
+    } catch(e) { res.json({ userId: req.params.id, fxCoin: 1000000 }); }
 });
 
 app.post('/api/admin/add', async (req, res) => {
     try {
         const { userId, amount } = req.body;
-        const user = await User.findOneAndUpdate(
-            { userId }, 
-            { $inc: { fxCoin: parseInt(amount) } }, 
-            { upsert: true, new: true }
-        );
+        const user = await User.findOneAndUpdate({ userId }, { $inc: { fxCoin: parseInt(amount) } }, { upsert: true, new: true });
         res.json({ success: true, balance: user.fxCoin });
-    } catch (e) {
-        res.json({ success: false });
-    }
+    } catch(e) { res.json({ success: false }); }
 });
 
 // --- 4. ASOSIY SAYT (25 TA KEYS) ---
-const CASE_LIST = ["Mummy", "Glacier", "Pharaoh", "Poseidon", "Avalanche", "Silvanus", "Stygian", "Irradiant", "Galadria", "Godzilla", "Kong", "Joker", "Blood Raven", "Fiend Hunter", "Arcane", "Ignis", "Dragon", "Samurai", "Cyber", "Neon", "Void", "Gold", "Silver", "Elite", "Legend"];
+const CASES = ["Mummy", "Glacier", "Pharaoh", "Poseidon", "Avalanche", "Silvanus", "Stygian", "Irradiant", "Galadria", "Godzilla", "Kong", "Joker", "Blood Raven", "Fiend Hunter", "Arcane", "Ignis", "Dragon", "Samurai", "Cyber", "Neon", "Void", "Gold", "Silver", "Elite", "Legend"];
 
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
-<html>
+<html lang="uz">
 <head>
-    <title>FX-LOOT</title>
+    <meta charset="UTF-8">
+    <title>FX-LOOT | 1M COINS</title>
     <style>
         body { background: #050505; color: white; font-family: sans-serif; margin: 0; }
-        header { background: #0a0a0a; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; }
+        header { background: #0a0a0a; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; position: sticky; top:0; z-index:10; }
         .logo { color: #f57c00; font-weight: 900; font-size: 24px; }
-        .bal { border: 1px solid #f57c00; padding: 8px 15px; border-radius: 20px; color: #f57c00; font-weight: bold; }
-        .container { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; padding: 30px; }
-        .card { background: #111; border: 1px solid #222; padding: 20px; border-radius: 10px; text-align: center; }
-        .card:hover { border-color: #fce803; }
-        .name { font-size: 14px; margin: 10px 0; color: #fce803; font-weight: bold; }
-        .btn { background: #f57c00; border: none; padding: 8px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .bal-box { border: 1px solid #f57c00; padding: 8px 20px; border-radius: 25px; color: #f57c00; font-weight: bold; background: rgba(245,124,0,0.05); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; padding: 30px; }
+        .card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 20px; text-align: center; transition: 0.3s; }
+        .card:hover { border-color: #fce803; transform: scale(1.03); }
+        .case-icon { font-size: 50px; margin-bottom: 15px; display: block; }
+        .case-name { color: #fce803; font-weight: bold; text-transform: uppercase; font-size: 14px; margin-bottom: 15px; }
+        .btn-open { background: #f57c00; color: black; border: none; padding: 10px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
+        .btn-10x { background: #222; color: #aaa; border: none; padding: 10px; width: 100%; border-radius: 6px; cursor: pointer; font-size: 12px; }
     </style>
 </head>
 <body>
     <header>
         <div class="logo">FX-LOOT</div>
-        <div style="display:flex; gap:15px; align-items:center;">
-            <span id="uid" style="color:#444; font-size:12px;"></span>
-            <div class="bal">💰 <span id="bal">0</span> Fx</div>
+        <div style="display:flex; align-items:center; gap:15px;">
+            <span id="uid" style="color:#555; font-size:12px;"></span>
+            <div class="bal-box">💰 <span id="bal">0</span> Fx</div>
         </div>
     </header>
-    <div class="container" id="grid"></div>
+    <div class="grid" id="main_grid"></div>
     <script>
-        let id = localStorage.getItem('fx_user') || 'ID' + Math.floor(Math.random()*99999);
+        let id = localStorage.getItem('fx_user') || 'ID' + Math.floor(Math.random()*999999);
         localStorage.setItem('fx_user', id);
         document.getElementById('uid').innerText = id;
 
-        const cases = ${JSON.stringify(CASE_LIST)};
-        document.getElementById('grid').innerHTML = cases.map(n => \`
+        const list = ${JSON.stringify(CASES)};
+        document.getElementById('main_grid').innerHTML = list.map(name => \`
             <div class="card">
-                <div style="font-size:40px; margin-bottom:10px;">🎁</div>
-                <div class="name">\${n} Crate</div>
-                <button class="btn">1x - 70 Fx</button>
+                <span class="case-icon">🎁</span>
+                <div class="case-name">\${name} Crate</div>
+                <button class="btn-open">1x - 70 Fx</button>
+                <button class="btn-10x">10x - 700 Fx</button>
             </div>
         \`).join('');
 
-        async function getBal() {
+        async function refresh() {
             const r = await fetch('/api/user/' + id);
             const d = await r.json();
             document.getElementById('bal').innerText = d.fxCoin.toLocaleString();
         }
-        getBal();
-        setInterval(getBal, 5000);
+        refresh();
+        setInterval(refresh, 4000);
     </script>
 </body>
 </html>`);
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Server is running!"));
+app.listen(PORT, () => console.log("🚀 Server is running on port " + PORT));
