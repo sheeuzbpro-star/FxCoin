@@ -1,7 +1,16 @@
 {
-  "name": "pubgm-sim",
+  "name": "fxcoin-pubgm",
   "version": "1.0.0",
+  "description": "PUBGM Case Simulator",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
-  "dependencies": { "express": "^4.18.2", "mongoose": "^7.0.0" }
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
 }
