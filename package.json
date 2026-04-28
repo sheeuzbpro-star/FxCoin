@@ -1,7 +1,7 @@
 {
-  "name": "fxcoin-pubgm",
+  "name": "fx-loot-simulator",
   "version": "1.0.0",
-  "description": "PUBGM Case Simulator",
+  "description": "Professional PUBGM Case Simulator",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
