@@ -1,16 +1,12 @@
 {
-  "name": "fx-loot-simulator",
+  "name": "educhat-platform",
   "version": "1.0.0",
-  "description": "Professional PUBGM Case Simulator",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mongoose": "^7.0.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "socket.io": "^4.7.2"
   }
 }
